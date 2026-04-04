@@ -37,12 +37,14 @@ def main():
     sqlite_manager = SQLiteManager()
     chroma_manager = ChromaManager()
     
-    # 3. 初始化服务（ocr、embedding）
+    # 3. 初始化服务（ocr、ai、embedding）
     print("Initializing services...")
     from services.ocr_engine import OCREngine
+    from services.ai_client import AIClient
     from services.embedding_client import EmbeddingClient
     
     ocr_engine = OCREngine()
+    ai_client = AIClient()
     embedding_client = EmbeddingClient()
     
     # 4. 初始化任务队列
@@ -51,7 +53,25 @@ def main():
     
     task_queue = TaskQueueManager()
     
-    # 5. 启动 UI
+    # 5. 初始化键盘管理器（全局快捷键）
+    print("Initializing keyboard manager...")
+    from services.keyboard_manager import keyboard_manager
+    from config.settings_manager import settings_manager
+    
+    # 从配置中获取快捷键
+    screenshot_hotkey = settings_manager.get("hotkeys.screenshot")
+    
+    # 注册全局快捷键
+    def on_screenshot():
+        print("Global screenshot shortcut pressed!")
+        from core.capture import capture_manager
+        capture_manager.capture_fullscreen()
+    
+    keyboard_manager.register_hotkey(screenshot_hotkey, on_screenshot)
+    keyboard_manager.start_listening()
+    print(f"Global hotkey registered: {screenshot_hotkey}")
+    
+    # 6. 启动 UI
     print("Starting UI...")
     app = QApplication(sys.argv)
     app.setApplicationName("Glimpse")
@@ -61,7 +81,12 @@ def main():
     window = MainWindow()
     window.show()
     
-    sys.exit(app.exec())
+    # 运行应用
+    try:
+        sys.exit(app.exec())
+    finally:
+        # 清理资源
+        keyboard_manager.stop_listening()
 
 
 if __name__ == "__main__":
