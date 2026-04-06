@@ -27,6 +27,7 @@ class CaptureManager:
 
     _instance = None
     _lock = Lock()
+    _settings_lock = Lock()
 
     def __new__(cls):
         if cls._instance is None:
@@ -48,12 +49,14 @@ class CaptureManager:
         self._capture_count = 0
         self._capture_window_start = 0
         self._max_captures_per_window = 10
+        self._fullscreen_debounce_time = 0
+        self._region_debounce_time = 0
 
     def capture_fullscreen(self, delay: float = 0) -> Optional[CaptureResult]:
         if delay > 0:
             time.sleep(delay)
 
-        if not self._check_debounce():
+        if not self._check_debounce(is_fullscreen=True):
             return None
 
         if self._check_force_split():
@@ -62,14 +65,14 @@ class CaptureManager:
         try:
             screenshot = self._sct.grab(self._sct.monitors[1])
             img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
-            
+
             filename = f"screenshot_{int(time.time() * 1000)}.png"
             image_path = path_manager.get_screenshot_path(filename)
-            
+
             img.save(str(image_path), "PNG")
-            
-            self._update_capture_count()
-            
+
+            self._update_capture_count(is_fullscreen=True)
+
             return CaptureResult(
                 image_path=str(image_path),
                 width=screenshot.width,
@@ -85,7 +88,7 @@ class CaptureManager:
         if w <= 0 or h <= 0:
             return None
 
-        if not self._check_debounce():
+        if not self._check_debounce(is_fullscreen=False):
             return None
 
         if self._check_force_split():
@@ -98,16 +101,16 @@ class CaptureManager:
             monitor = {"top": y, "left": x, "width": w, "height": h}
             screenshot = self._sct.grab(monitor)
             img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
-            
+
             filename = f"screenshot_{int(time.time() * 1000)}.png"
             image_path = path_manager.get_screenshot_path(filename)
-            
+
             img.save(str(image_path), "PNG")
-            
-            self._update_capture_count()
-            
+
+            self._update_capture_count(is_fullscreen=False)
+
             self._last_region = region
-            
+
             return CaptureResult(
                 image_path=str(image_path),
                 width=w,
@@ -118,25 +121,30 @@ class CaptureManager:
             print(f"Capture error: {e}")
             return None
 
-    def _check_debounce(self) -> bool:
+    def _check_debounce(self, is_fullscreen: bool = True) -> bool:
         current_time = time.time()
-        if current_time - self._last_capture_time < self._debounce_interval:
+        last_time = self._fullscreen_debounce_time if is_fullscreen else self._region_debounce_time
+        if current_time - last_time < self._debounce_interval:
             return False
         return True
 
     def _check_force_split(self) -> bool:
         current_time = time.time()
-        if current_time - self._capture_window_start > self._debounce_interval:
+        if current_time - self._capture_window_start >= self._debounce_interval:
             self._capture_window_start = current_time
             self._capture_count = 0
-        
+
         if self._capture_count >= self._max_captures_per_window:
             return True
         return False
 
-    def _update_capture_count(self):
+    def _update_capture_count(self, is_fullscreen: bool = True):
         self._capture_count += 1
-        self._last_capture_time = time.time()
+        current_time = time.time()
+        if is_fullscreen:
+            self._fullscreen_debounce_time = current_time
+        else:
+            self._region_debounce_time = current_time
 
     def _is_clustered_region(self, region: Tuple[int, int, int, int]) -> bool:
         if self._last_region is None:
@@ -157,11 +165,89 @@ class CaptureManager:
 
         return iou > 0.5 and time_diff < self._cluster_threshold
 
-    def set_debounce_interval(self, interval: float):
-        self._debounce_interval = interval
+    def set_debounce_interval(self, interval: float) -> bool:
+        """设置防抖间隔
+        
+        Args:
+            interval: 防抖间隔（秒）
+            
+        Returns:
+            是否设置成功
+        """
+        try:
+            self._debounce_interval = float(interval)
+            return True
+        except (ValueError, TypeError):
+            return False
 
-    def set_cluster_threshold(self, threshold: float):
-        self._cluster_threshold = threshold
+    def set_cluster_threshold(self, threshold: float) -> bool:
+        """设置集群阈值
+        
+        Args:
+            threshold: 集群阈值（秒）
+            
+        Returns:
+            是否设置成功
+        """
+        try:
+            self._cluster_threshold = float(threshold)
+            return True
+        except (ValueError, TypeError):
+            return False
+
+    def set_max_captures_per_window(self, max_captures: int) -> bool:
+        """设置每个窗口最大截图数量
+        
+        Args:
+            max_captures: 最大截图数量
+            
+        Returns:
+            是否设置成功
+        """
+        try:
+            self._max_captures_per_window = int(max_captures)
+            return True
+        except (ValueError, TypeError):
+            return False
+
+    def update_settings(self, settings: dict) -> bool:
+        """更新截图设置（用于热更新，原子操作）
+        
+        Args:
+            settings: 包含截图设置的字典
+            
+        Returns:
+            是否更新成功
+        """
+        with self._settings_lock:
+            old_debounce = self._debounce_interval
+            old_cluster = self._cluster_threshold
+            old_max = self._max_captures_per_window
+
+            try:
+                if "debounce_interval" in settings:
+                    if not self.set_debounce_interval(settings["debounce_interval"]):
+                        return False
+                if "cluster_threshold" in settings:
+                    if not self.set_cluster_threshold(settings["cluster_threshold"]):
+                        return False
+                if "max_captures_per_window" in settings:
+                    if not self.set_max_captures_per_window(settings["max_captures_per_window"]):
+                        return False
+                return True
+            except Exception:
+                self._debounce_interval = old_debounce
+                self._cluster_threshold = old_cluster
+                self._max_captures_per_window = old_max
+                return False
+
+    def get_settings(self) -> dict:
+        """获取当前截图设置"""
+        return {
+            "debounce_interval": self._debounce_interval,
+            "cluster_threshold": self._cluster_threshold,
+            "max_captures_per_window": self._max_captures_per_window
+        }
 
     def close(self):
         self._sct.close()
