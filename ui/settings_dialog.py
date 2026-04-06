@@ -2,6 +2,7 @@
 设置对话框
 提供图形界面让用户修改配置
 """
+import copy
 import re
 from typing import Dict, Any, Optional, Callable
 from PySide6.QtWidgets import (
@@ -33,7 +34,7 @@ class SettingsDialog(QDialog):
         self._task_queue = task_queue
 
         self._original_settings = settings_manager.get_all()
-        self._pending_settings = self._original_settings.copy()
+        self._pending_settings = copy.deepcopy(self._original_settings)
         self._degraded_services = []
 
         self._screenshot_callback: Optional[Callable] = None
@@ -402,19 +403,22 @@ class SettingsDialog(QDialog):
     
     def _apply_settings(self, new_settings: Dict[str, Any]) -> tuple:
         """应用设置（带热更新和错误处理）
-        
+
         Returns:
             (是否完全成功, 降级服务列表)
         """
         success = True
         degraded = []
-        
+
+        old_screenshot_settings = self._capture_manager.get_settings()
+        old_hotkeys = self._keyboard_manager.get_hotkeys()
+
         # 1. 等待或取消长时间运行的任务
         self._task_queue.wait_for_tasks_completion(timeout=5.0)
         cancelled = self._task_queue.cancel_all_pending()
         if cancelled > 0:
             print(f"已取消 {cancelled} 个待处理任务")
-        
+
         # 2. 更新截图设置
         try:
             screenshot_settings = new_settings.get("screenshot", {})
@@ -424,55 +428,56 @@ class SettingsDialog(QDialog):
         except Exception as e:
             degraded.append(f"截图设置({str(e)})")
             success = False
-        
+            self._capture_manager.update_settings(old_screenshot_settings)
+
         # 3. 更新快捷键设置
+        hotkey_reload_success = True
         try:
             hotkeys = new_settings.get("hotkeys", {})
-            
-            # 准备新的快捷键回调
+
             new_hotkeys = {}
             if hotkeys.get("screenshot"):
                 new_hotkeys[hotkeys["screenshot"]] = self._get_screenshot_callback()
-            
-            # 原子操作：停止 -> 清空 -> 注册新快捷键 -> 启动
-            self._keyboard_manager.reload_hotkeys(new_hotkeys)
+
+            hotkey_reload_success = self._keyboard_manager.reload_hotkeys(new_hotkeys)
+            if not hotkey_reload_success:
+                degraded.append("快捷键")
+                success = False
         except Exception as e:
             degraded.append(f"快捷键({str(e)})")
             success = False
-        
+            self._keyboard_manager.reload_hotkeys(old_hotkeys)
+
         # 4. 更新 AI 设置
         try:
             ai_settings = new_settings.get("ai", {})
-            # AI 服务热更新需要重新初始化客户端
-            # 这里只是标记需要重启，实际重启在 AI 服务类中处理
             if ai_settings.get("api_key") != self._original_settings.get("ai", {}).get("api_key"):
                 degraded.append("AI API Key (需要重启)")
         except Exception as e:
             degraded.append(f"AI 设置({str(e)})")
             success = False
-        
+
         # 5. 更新 OCR 设置
         try:
             ocr_settings = new_settings.get("ocr", {})
-            # OCR 设置热更新类似 AI
             if ocr_settings.get("engine") != self._original_settings.get("ocr", {}).get("engine"):
                 degraded.append("OCR 引擎 (需要重启)")
         except Exception as e:
             degraded.append(f"OCR 设置({str(e)})")
             success = False
-        
+
         # 6. 更新 UI 设置
         try:
             ui_settings = new_settings.get("ui", {})
-            # UI 设置可以直接热更新
-            # 主题切换等
         except Exception as e:
             degraded.append(f"UI 设置({str(e)})")
             success = False
-        
+
         # 7. 保存设置到文件
-        self._settings_manager.update(new_settings)
-        
+        if not self._settings_manager.update(new_settings):
+            degraded.append("配置保存")
+            success = False
+
         return success, degraded
 
     def _update_degraded_label(self):
@@ -488,3 +493,18 @@ class SettingsDialog(QDialog):
     def get_degraded_services(self) -> list:
         """获取降级服务列表"""
         return self._degraded_services.copy()
+
+    def closeEvent(self, event):
+        """关闭对话框时的处理"""
+        current_settings = self._collect_settings_from_ui()
+        if current_settings != self._original_settings:
+            reply = QMessageBox.question(
+                self,
+                "确认关闭",
+                "有未保存的修改，确定要关闭吗？",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                event.ignore()
+                return
+        event.accept()
