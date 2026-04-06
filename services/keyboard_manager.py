@@ -55,32 +55,49 @@ class KeyboardManager:
         with self._lock:
             self._hotkeys.clear()
     
-    def _create_listener_locked(self):
-        """在持有_lock的情况下创建热键监听器（内部方法）"""
+    def _create_listener_locked(self) -> Optional[keyboard.GlobalHotKeys]:
+        """在持有_lock的情况下创建热键监听器（内部方法）
+
+        Returns:
+            创建的监听器，失败返回 None
+        """
         hotkey_dict = {hotkey: callback for hotkey, callback in self._hotkeys.items()}
-        if hotkey_dict:
-            self._listener = keyboard.GlobalHotKeys(hotkey_dict)
-            return True
-        return False
-    
+        if not hotkey_dict:
+            return None
+        try:
+            return keyboard.GlobalHotKeys(hotkey_dict)
+        except Exception:
+            return None
+
     def start_listening(self):
         """开始监听全局快捷键"""
         with self._listener_lock:
             if self._running:
                 return
             with self._lock:
-                if self._create_listener_locked():
-                    self._listener.start()
-                    self._running = True
-    
+                listener = self._create_listener_locked()
+                if listener:
+                    try:
+                        listener.start()
+                        self._listener = listener
+                        self._running = True
+                    except Exception:
+                        try:
+                            listener.stop()
+                        except Exception:
+                            pass
+
     def stop_listening(self):
         """停止监听全局快捷键"""
         with self._listener_lock:
             if self._running and self._listener:
-                self._listener.stop()
+                try:
+                    self._listener.stop()
+                except Exception:
+                    pass
                 self._running = False
                 self._listener = None
-    
+
     def restart_listening(self):
         """重启键盘监听（用于热更新快捷键）
 
@@ -94,19 +111,24 @@ class KeyboardManager:
             self._listener = None
             self._running = False
 
-            try:
-                if old_running and old_listener:
+            if old_running and old_listener:
+                try:
                     old_listener.stop()
+                except Exception:
+                    pass
 
-                with self._lock:
-                    if self._hotkeys:
-                        if self._create_listener_locked():
-                            self._listener.start()
-                            self._running = True
-            except Exception:
-                self._listener = None
-                self._running = False
-                raise
+            with self._lock:
+                new_listener = self._create_listener_locked()
+                if new_listener:
+                    try:
+                        new_listener.start()
+                        self._listener = new_listener
+                        self._running = True
+                    except Exception:
+                        try:
+                            new_listener.stop()
+                        except Exception:
+                            pass
 
     def is_running(self) -> bool:
         """检查是否正在监听"""
@@ -126,44 +148,56 @@ class KeyboardManager:
         Returns:
             是否重载成功
         """
-        old_hotkeys = None
-        old_listener = None
-        old_running = False
+        old_hotkeys = self._hotkeys.copy()
+        old_listener = self._listener
+        old_running = self._running
+
+        new_listener = None
+        new_running = False
 
         try:
             with self._listener_lock:
-                with self._lock:
-                    old_hotkeys = self._hotkeys.copy()
-                    old_listener = self._listener
-                    old_running = self._running
-
-                    if old_running and old_listener:
+                if old_running and old_listener:
+                    try:
                         old_listener.stop()
+                    except Exception:
+                        pass
 
+                with self._lock:
                     self._hotkeys = hotkeys.copy()
                     self._listener = None
                     self._running = False
 
-                    if self._hotkeys:
-                        if self._create_listener_locked():
-                            self._listener.start()
+                    new_listener = self._create_listener_locked()
+                    if new_listener:
+                        try:
+                            new_listener.start()
+                            self._listener = new_listener
+                            new_running = True
                             self._running = True
+                        except Exception:
+                            try:
+                                new_listener.stop()
+                            except Exception:
+                                pass
 
-                    return True
+                    return new_running or not hotkeys
+
         except Exception:
             with self._listener_lock:
                 with self._lock:
-                    if old_listener and old_running:
+                    if old_running and old_listener:
                         try:
                             old_listener.start()
                             self._listener = old_listener
                             self._running = old_running
-                            self._hotkeys = old_hotkeys
                         except Exception:
                             self._listener = None
                             self._running = False
                     else:
-                        self._hotkeys = old_hotkeys
+                        self._listener = None
+                        self._running = False
+                    self._hotkeys = old_hotkeys
             return False
 
 
