@@ -300,8 +300,10 @@ class SettingsDialog(QDialog):
             self._settings_manager.reset()
             default_settings = self._settings_manager.get_all()
             self._load_current_settings()
-            self._pending_settings = default_settings
+            self._pending_settings = copy.deepcopy(default_settings)
             self._original_settings = default_settings
+            self._degraded_services = []
+            self._update_degraded_label()
     
     def _on_save(self) -> bool:
         """保存设置（不应用）
@@ -420,31 +422,20 @@ class SettingsDialog(QDialog):
             print(f"已取消 {cancelled} 个待处理任务")
 
         # 2. 更新截图设置
-        try:
-            screenshot_settings = new_settings.get("screenshot", {})
-            if not self._capture_manager.update_settings(screenshot_settings):
-                degraded.append("截图设置")
-                success = False
-        except Exception as e:
-            degraded.append(f"截图设置({str(e)})")
+        screenshot_settings = new_settings.get("screenshot", {})
+        if not self._capture_manager.update_settings(screenshot_settings):
+            degraded.append("截图设置")
             success = False
             self._capture_manager.update_settings(old_screenshot_settings)
 
         # 3. 更新快捷键设置
-        hotkey_reload_success = True
-        try:
-            hotkeys = new_settings.get("hotkeys", {})
+        hotkeys = new_settings.get("hotkeys", {})
+        new_hotkeys = {}
+        if hotkeys.get("screenshot"):
+            new_hotkeys[hotkeys["screenshot"]] = self._get_screenshot_callback()
 
-            new_hotkeys = {}
-            if hotkeys.get("screenshot"):
-                new_hotkeys[hotkeys["screenshot"]] = self._get_screenshot_callback()
-
-            hotkey_reload_success = self._keyboard_manager.reload_hotkeys(new_hotkeys)
-            if not hotkey_reload_success:
-                degraded.append("快捷键")
-                success = False
-        except Exception as e:
-            degraded.append(f"快捷键({str(e)})")
+        if not self._keyboard_manager.reload_hotkeys(new_hotkeys):
+            degraded.append("快捷键")
             success = False
             self._keyboard_manager.reload_hotkeys(old_hotkeys)
 
