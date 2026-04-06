@@ -1,7 +1,8 @@
 """
 Main Window - 主窗体与布局
 """
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPushButton, QLineEdit, QLabel, QListWidget, QTextEdit, QSystemTrayIcon, QMenu
+import sys
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPushButton, QLineEdit, QLabel, QListWidget, QTextEdit, QSystemTrayIcon, QMenu, QApplication
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QShortcut, QKeySequence, QIcon, QPixmap
 
@@ -74,6 +75,11 @@ class MainWindow(QMainWindow):
         self.clear_shortcut.activated.connect(self._clear_search)
 
     def _setup_tray_icon(self):
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            print("警告: 系统不支持托盘图标，功能受限")
+            self.tray_icon = None
+            return
+
         pixmap = QPixmap(24, 24)
         pixmap.fill(Qt.GlobalColor.blue)
         icon = QIcon(pixmap)
@@ -186,18 +192,26 @@ class MainWindow(QMainWindow):
         self.status_bar.setText(status)
 
     def _on_tray_activated(self, reason):
+        if self.tray_icon is None:
+            return
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             self.showNormal()
             self.activateWindow()
 
     def _on_quit(self):
         """完全退出应用"""
-        self.tray_icon.hide()
-        self.close()
+        if self.tray_icon is not None:
+            self.tray_icon.hide()
+        keyboard_manager.stop_listening()
+        task_queue.shutdown()
+        capture_manager.close()
         QApplication.instance().quit()
 
     def closeEvent(self, event):
         """窗口关闭时隐藏到托盘而不是退出"""
+        if self.tray_icon is None:
+            self._on_quit()
+            return
         event.ignore()
         self.hide()
         self.tray_icon.showMessage(
