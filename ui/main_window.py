@@ -223,7 +223,6 @@ class MainWindow(QMainWindow):
 
 
 def main():
-    import sys
     from PySide6.QtWidgets import QApplication
     app = QApplication(sys.argv)
     window = MainWindow()
