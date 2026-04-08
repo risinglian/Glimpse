@@ -8,11 +8,13 @@ from PySide6.QtGui import QAction, QShortcut, QKeySequence, QIcon, QPixmap
 
 from ui.signals import signals
 from ui.settings_dialog import SettingsDialog
+from services.memory_service import memory_service
+from services.search_service import search_service
 from services.keyboard_manager import keyboard_manager
 from core.capture import capture_manager
 from core.task_queue import task_queue
 from config.settings_manager import settings_manager
-from db.sqlite_manager import sqlite_manager
+from container import container
 
 
 class MainWindow(QMainWindow):
@@ -133,7 +135,7 @@ class MainWindow(QMainWindow):
         signals.status_updated.connect(self._on_status_updated)
 
     def _load_memories(self):
-        self._current_memories = sqlite_manager.get_all_memories(limit=100)
+        self._current_memories = search_service.get_recent_memories(limit=100)
         self._update_memory_list()
 
     def _update_memory_list(self):
@@ -145,11 +147,11 @@ class MainWindow(QMainWindow):
         pass
 
     def _on_screenshot(self):
-        signals.screenshot_requested.emit()
+        capture_manager = container.get("capture_manager")
+        capture_manager.capture_fullscreen()
 
     def _on_screenshot_complete(self, image_path: str):
         self.status_bar.setText(f"截图完成: {image_path}")
-        self._load_memories()
 
     def _on_search_text_changed(self, text: str):
         self._search_timer.start(300)
@@ -157,9 +159,9 @@ class MainWindow(QMainWindow):
     def _do_search(self):
         query = self.search_input.text().strip()
         if not query:
-            self._current_memories = sqlite_manager.get_all_memories(limit=100)
+            self._current_memories = search_service.get_recent_memories(limit=100)
         else:
-            self._current_memories = sqlite_manager.search_memories(query)
+            self._current_memories = search_service.search(query)
         self._update_memory_list()
 
     def _clear_search(self):
@@ -220,15 +222,3 @@ class MainWindow(QMainWindow):
             QSystemTrayIcon.Information,
             2000
         )
-
-
-def main():
-    from PySide6.QtWidgets import QApplication
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
-
-
-if __name__ == "__main__":
-    main()
