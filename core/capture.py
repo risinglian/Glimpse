@@ -1,8 +1,9 @@
 """
 Capture - pynput 与 mss 的封装，包含集群防抖算法
+注入PathManager
 """
 import time
-from typing import Optional, Callable, Tuple
+from typing import Optional, Callable, Tuple, TYPE_CHECKING
 from dataclasses import dataclass
 from threading import Lock
 
@@ -10,7 +11,8 @@ import mss
 import numpy as np
 from PIL import Image
 
-from config.path_manager import path_manager
+if TYPE_CHECKING:
+    from config.path_manager import PathManager
 
 
 @dataclass
@@ -23,24 +25,10 @@ class CaptureResult:
 
 
 class CaptureManager:
-    """截图管理器 - 单例模式，包含集群防抖"""
+    """截图管理器 - 注入PathManager，包含集群防抖"""
 
-    _instance = None
-    _lock = Lock()
-    _settings_lock = Lock()
-
-    def __new__(cls):
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
-        return cls._instance
-
-    def __init__(self):
-        if self._initialized:
-            return
-        self._initialized = True
+    def __init__(self, path_manager: "PathManager"):
+        self._path_manager = path_manager
         self._sct = mss.mss()
         self._last_capture_time = 0
         self._debounce_interval = 5.0
@@ -52,6 +40,7 @@ class CaptureManager:
         self._region_debounce_time = 0
         self._fullscreen_count = 0
         self._region_count = 0
+        self._settings_lock = Lock()
 
     def capture_fullscreen(self, delay: float = 0) -> Optional[CaptureResult]:
         if delay > 0:
@@ -68,7 +57,7 @@ class CaptureManager:
             img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
 
             filename = f"screenshot_{int(time.time() * 1000)}.png"
-            image_path = path_manager.get_screenshot_path(filename)
+            image_path = self._path_manager.get_screenshot_path(filename)
 
             img.save(str(image_path), "PNG")
 
@@ -104,7 +93,7 @@ class CaptureManager:
             img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
 
             filename = f"screenshot_{int(time.time() * 1000)}.png"
-            image_path = path_manager.get_screenshot_path(filename)
+            image_path = self._path_manager.get_screenshot_path(filename)
 
             img.save(str(image_path), "PNG")
 
@@ -172,14 +161,6 @@ class CaptureManager:
         return iou > 0.5 and time_diff < self._cluster_threshold
 
     def set_debounce_interval(self, interval: float) -> bool:
-        """设置防抖间隔
-        
-        Args:
-            interval: 防抖间隔（秒）
-            
-        Returns:
-            是否设置成功
-        """
         try:
             self._debounce_interval = float(interval)
             return True
@@ -187,14 +168,6 @@ class CaptureManager:
             return False
 
     def set_cluster_threshold(self, threshold: float) -> bool:
-        """设置集群阈值
-        
-        Args:
-            threshold: 集群阈值（秒）
-            
-        Returns:
-            是否设置成功
-        """
         try:
             self._cluster_threshold = float(threshold)
             return True
@@ -202,14 +175,6 @@ class CaptureManager:
             return False
 
     def set_max_captures_per_window(self, max_captures: int) -> bool:
-        """设置每个窗口最大截图数量
-        
-        Args:
-            max_captures: 最大截图数量
-            
-        Returns:
-            是否设置成功
-        """
         try:
             self._max_captures_per_window = int(max_captures)
             return True
@@ -217,14 +182,6 @@ class CaptureManager:
             return False
 
     def update_settings(self, settings: dict) -> bool:
-        """更新截图设置（用于热更新，原子操作）
-
-        Args:
-            settings: 包含截图设置的字典
-
-        Returns:
-            是否更新成功
-        """
         with self._settings_lock:
             old_debounce = self._debounce_interval
             old_cluster = self._cluster_threshold
@@ -264,7 +221,6 @@ class CaptureManager:
                 return False
 
     def get_settings(self) -> dict:
-        """获取当前截图设置"""
         return {
             "debounce_interval": self._debounce_interval,
             "cluster_threshold": self._cluster_threshold,
@@ -275,4 +231,16 @@ class CaptureManager:
         self._sct.close()
 
 
-capture_manager = CaptureManager()
+_capture_manager_instance: Optional[CaptureManager] = None
+
+
+def get_capture_manager(path_manager: "PathManager" = None) -> CaptureManager:
+    global _capture_manager_instance
+    if _capture_manager_instance is None:
+        if path_manager is None:
+            from config.path_manager import path_manager
+        _capture_manager_instance = CaptureManager(path_manager)
+    return _capture_manager_instance
+
+
+capture_manager = get_capture_manager()
