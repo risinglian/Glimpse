@@ -135,6 +135,3 @@ class ChromaManager:
     def close(self) -> None:
         self._client = None
         self._collection = None
-
-
-chroma_manager = get_chroma_manager()

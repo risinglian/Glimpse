@@ -163,8 +163,8 @@ class DIContainer:
         from services.ocr_engine import ocr_engine
         self.register_singleton("ocr_engine", ocr_engine)
 
-        from services.embedding_client import embedding_client
-        self.register_singleton("embedding_client", embedding_client)
+        from services.embedding_client import EmbeddingClient
+        self.register_singleton_factory("embedding_client", lambda: EmbeddingClient())
 
         from core.task_queue import task_queue
         self.register_singleton("task_queue", task_queue)

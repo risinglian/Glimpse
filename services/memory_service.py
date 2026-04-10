@@ -174,24 +174,3 @@ class MemoryService:
     def get_active_count(self) -> int:
         with self._active_lock:
             return self._active_count
-
-
-_memory_service_instance: Optional[MemoryService] = None
-
-
-def get_memory_service() -> MemoryService:
-    global _memory_service_instance
-    if _memory_service_instance is None:
-        from container import container
-        _memory_service_instance = MemoryService(
-            sqlite_manager=container.get("sqlite_manager"),
-            chroma_manager=container.get("chroma_manager"),
-            ocr_engine=container.get("ocr_engine"),
-            ai_client=container.get("ai_client"),
-            embedding_client=container.get("embedding_client"),
-            task_queue=container.get("task_queue"),
-        )
-    return _memory_service_instance
-
-
-memory_service = get_memory_service()

@@ -35,9 +35,7 @@ def main():
 
     print("Initializing services...")
     from services.ocr_engine import ocr_engine
-    from services.embedding_client import embedding_client
     from services.ai_client import ai_client
-    from services.memory_service import memory_service
     from services.search_service import search_service
 
     print("Initializing task queue...")
@@ -51,7 +49,7 @@ def main():
 
     def on_screenshot():
         print("Global screenshot shortcut pressed!")
-        from core.capture import capture_manager
+        capture_manager = container.get("capture_manager")
         capture_manager.capture_fullscreen()
 
     keyboard_manager.register_hotkey(screenshot_hotkey, on_screenshot)

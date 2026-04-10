@@ -105,21 +105,3 @@ class SearchService:
 
     def get_memory_by_id(self, memory_id: str):
         return self._sqlite_manager.get_memory_by_id(memory_id)
-
-
-_search_service_instance: Optional[SearchService] = None
-
-
-def get_search_service() -> SearchService:
-    global _search_service_instance
-    if _search_service_instance is None:
-        from container import container
-        _search_service_instance = SearchService(
-            sqlite_manager=container.get("sqlite_manager"),
-            chroma_manager=container.get("chroma_manager"),
-            embedding_client=container.get("embedding_client"),
-        )
-    return _search_service_instance
-
-
-search_service = get_search_service()

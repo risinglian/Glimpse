@@ -229,18 +229,3 @@ class CaptureManager:
 
     def close(self):
         self._sct.close()
-
-
-_capture_manager_instance: Optional[CaptureManager] = None
-
-
-def get_capture_manager(path_manager: "PathManager" = None) -> CaptureManager:
-    global _capture_manager_instance
-    if _capture_manager_instance is None:
-        if path_manager is None:
-            from config.path_manager import path_manager
-        _capture_manager_instance = CaptureManager(path_manager)
-    return _capture_manager_instance
-
-
-capture_manager = get_capture_manager()
