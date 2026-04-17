@@ -1,1 +1,0 @@
-"""Glimpse Database Package"""
